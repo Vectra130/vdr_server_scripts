@@ -1,0 +1,37 @@
+# v1.3 vdrserver
+if [ -e /etc/vectra130/data/.vdr_restart ]; then
+	rm /etc/vectra130/data/.vdr_restart
+	/etc/vectra130/scripts/.stop_vdr.sh
+        killall -9 -q vdr
+	/etc/vectra130/scripts/.start_vdr.sh
+        CLIENTINFO="VDR wird neu gestartet"
+        . $SCRIPTDIR/.vdr_clientinfo
+fi
+if [ -e /etc/vectra130/data/.vdr_restart_soft ]; then
+	rm /etc/vectra130/data/.vdr_restart_soft
+	. $SCRIPTDIR/.check_next_timer
+	if [ "X$?" != X2 ]; then
+	        killall -9 -q vdr
+	        CLIENTINFO="VDR wird neu gestartet"
+	        . $SCRIPTDIR/.vdr_clientinfo
+	fi
+fi
+if [ -e /etc/vectra130/data/.oscam_restart ]; then
+	rm /etc/vectra130/data/.oscam_restart
+        killall -9 -q oscam
+	/usr/bin/oscam -b
+        CLIENTINFO="Oscam wird neu gestartet"
+        . $SCRIPTDIR/.vdr_clientinfo
+fi
+if [ -e /etc/vectra130/data/.reboot ]; then
+        CLIENTINFO="System wird neu gestartet ..."
+        . $SCRIPTDIR/.vdr_clientinfo
+        rm /etc/vectra130/data/.reboot
+        /sbin/init reboot
+fi
+if [ -e /etc/vectra130/data/.poweroff ]; then
+        CLIENTINFO=System "wird heruntergefahren ..."
+        . $SCRIPTDIR/.vdr_clientinfo
+        rm /etc/vectra130/data/.poweroff
+        /sbin/init poweroff
+fi

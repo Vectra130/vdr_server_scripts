@@ -1,0 +1,44 @@
+#!/bin/bash
+
+# to_h264_server starten				jsffm@web.de
+
+#set -x
+
+h264=h264
+
+#r=$(ps -A | grep to_h264_server)
+#if [ "$r" != "" ]
+#then
+#    echo $r
+#    echo "already running"
+#    exit 99
+#fi
+
+wo=$(which to_h264_server)
+conf=$wo.conf
+
+while (true) do
+    r=$(ps -A | grep -v to_h264_server | grep to_h264)
+    if [ "$r" == "" ]
+    then
+	while read line
+	do
+	    #echo $line
+	    if [ -e $line ]
+	    then
+		#echo ok
+		for rh in $(find $line -name $h264)
+		do
+		    #echo $rh
+		    dh=$(dirname $rh)
+		    cd $dh
+		    to_h264 auto > h264.log 2> h264.err
+		    cd
+		    #break
+		done
+	    fi
+	done < $conf
+    fi
+    sleep 1m
+done
+

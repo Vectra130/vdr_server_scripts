@@ -1,0 +1,6 @@
+# v1.0 vdrserver
+
+#pruefen ob VDR-Videos aufs NAS kopiert/verschoben werden sollen
+
+/etc/vectra130/scripts/.move_video.sh &
+

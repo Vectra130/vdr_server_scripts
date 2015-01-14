@@ -1,0 +1,14 @@
+# v1.1 vdrserver
+#Die Info von $CLIENTINFO wird an die Clients Uebergeben
+
+[ -e /tmp/.scan_client_scantime ] || echo "0" > /tmp/.scan_client_scantime
+if [ $(($(date +%s) - $(cat /tmp/.scan_client_scantime))) -gt 30 ]; then # Nur alle 30 Sekunden eine Meldung zulassen
+	$SCRIPTDIR/.scan_avahi_clients VDR
+		while read CLIENT; do
+	                if [ "X$CLIENT" != "X" ]; then
+				logger -t CLIENTINFO "$CLIENTINFO"
+				svdrpsend -d $CLIENT -p 6419 mesg "VDR-Server: $CLIENTINFO" &
+			fi
+		done < $SYSCONFDIR/.clients_online
+	echo $(date +%s) > /tmp/.scan_client_scantime
+fi

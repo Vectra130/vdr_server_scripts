@@ -1,0 +1,14 @@
+# v1.0 vdrserver
+
+ttpciCheck=$(dmesg | grep "dvb-ttpci: ARM crashed" | wc -l)
+
+if [ "$ttpciCheck" != "0" ]; then
+	logger -t TTPCI_CHECK "Crash Meldung im dmesg entdeckt!!! Entlade DVB Treiber und starte VDR neu"
+	dmesg -c
+	killall .backend.sh
+	killall -9 vdr
+	rmmod dvb-ttpci
+	modprobe dvb-ttpci
+	$SCRIPTDIR/.backend.sh &
+fi
+

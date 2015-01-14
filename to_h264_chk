@@ -1,0 +1,173 @@
+#! /bin/sh
+
+# Record Eigenschaften
+
+#set -x
+
+#echo $1
+if [ "$1" != "" ]
+then
+    cd $1
+fi
+
+which avconv 2> /dev/null
+if [ $? -eq 0 ]
+then
+    ffmpeg=avconv
+    ffprobe=avprobe
+fi
+which ffmpeg 2> /dev/null
+if [ $? -eq 0 ]
+then
+    ffmpeg=ffmpeg
+    ffprobe=ffprobe
+fi
+
+pwd
+if [ -e 001.vdr ]
+then
+    in=001.vdr
+    w="0*.vdr"
+    fmt=vdr
+    index=index.vdr
+    info=info.vdr
+fi
+if [ -e 00001.ts ]
+then
+    in=00001.ts
+    w="*.ts"
+    fmt=ts
+    index=index
+    info=info
+    f=$(grep "^F" $info | cut -d ' ' -f 2)
+fi
+#exit
+sender=$(grep "^C" $info | cut -d ' ' -f 3-)
+echo $sender
+#echo $fmt
+t=/tmp/chk_ft
+#ffmpeg -i $in 2>&1 | grep "Stream"
+#ffmpeg -i $in 2>&1 | grep "Stream" > $t
+
+chk() {
+
+$ffprobe $1 2>&1 | grep "Stream" > $t
+# vdr
+# Stream #0:0[0x1e0]: Video: mpeg2video (Main), yuv420p, 720x576 [SAR 64:45 DAR 16:9], 15000 kb/s, 25 fps, 25 tbr, 90k tbn, 50 tbc
+# Stream #0:1[0x1c0]: Audio: mp2, 48000 Hz, stereo, s16, 192 kb/s
+# ts
+# Stream #0:0[0x231]: Video: mpeg2video (Main) ([2][0][0][0] / 0x0002), yuv420p, 704x576 [SAR 16:11 DAR 16:9], 15000 kb/s, 25 fps, 25 tbr, 90k tbn, 50 tbc
+# Stream #0:1[0x232](deu): Audio: mp2 ([4][0][0][0] / 0x0004), 48000 Hz, stereo, s16, 192 kb/s
+# Stream #0:0[0x100]: Video: h264 (Main) ([27][0][0][0] / 0x001B), yuv420p, 720x576 [SAR 64:45 DAR 16:9], 25 fps, 25 tbr, 90k tbn, 50 tbc
+# Stream #0:1[0x101]: Audio: aac ([15][0][0][0] / 0x000F), 48000 Hz, stereo, s16, 118 kb/s
+while read line
+do
+    #echo $line
+    typ=$(echo $line | cut -d ' ' -f 4)
+    typ=${typ//,/}
+    case $typ in
+	"mpeg2video" | "h264")
+	    vcodec=$typ
+	    if [ "$fmt" == "vdr" ]
+	    then
+		iaufl=7
+		ir=11
+	    else
+		iaufl=10
+		ir=14
+	    fi
+	    aufl=$(echo $line | cut -d ' ' -f $iaufl)
+	    r=$(echo $line | cut -d ' ' -f $ir)
+	    r=${r//],/}
+	    echo $typ $aufl $r
+	    ;;
+	"mp2" | "aac" | "ac3")
+	    id=$(echo $line | cut -d ' ' -f 2)
+	    if [ "$fmt" == "vdr" ]
+	    then
+		ityp=7
+		ibr=9
+	    else
+		ityp=10
+		ibr=12
+		lang=$(echo $line | cut -d ' ' -f 2 | cut -d "(" -f 2 | cut -d ")" -f 1)
+		if [ "${lang:0:1}" == "#" ]
+		then
+		    lang=""
+		fi
+	    fi
+	    atyp=$(echo $line | cut -d ' ' -f $ityp)
+	    atyp=${atyp//,/}
+	    br=$(echo $line | cut -d ' ' -f $ibr)
+	    #echo $id $lang $typ $atyp $br "kb/s"
+	    echo $id $typ $atyp $br "kb/s"
+	    ;;
+    esac
+done < $t
+}
+
+#chk $in
+
+for r in $w
+do
+    infiles="$infiles $r"
+done
+nfiles=$(echo $infiles | wc -w)
+
+echo "$nfiles Datei(en)"
+
+for r in $infiles
+do
+    echo $r
+    chk $r
+    if [ "$fmt" == "ts" ]
+    then
+	break
+    fi
+done
+
+du -hL
+#set -x
+size=$(du -kL)
+size=$(echo $size | cut -d ' ' -f 1)
+#exit
+# -rw-r--r-- 1 root root 1152 29. Jan 2010  index.vdr
+si=$(ls -l $index)
+si=$(echo $si | cut -d ' ' -f 5)
+if [ "$f" == "50" ]
+then
+    si=$(($si/2))
+fi
+s=$(($si/200))
+kbit=$((size*8/s))
+m=$(($si/12000))
+s=$(($s-$m*60))
+h=$(($si/720000))
+m=$(($m-$h*60))
+echo $h:$m:$s
+echo $kbit "kbit/s"
+if [ "$vcodec" == "mpeg2video" -a "$1" == "" ]
+then
+    echo "Nach h264 konvertieren? [s|p|t|a1|a2|m]"
+    read answer
+    case $answer in
+	"s")
+	    touch h264
+	    ;;
+	"p")
+	    echo "join=projectx" > h264
+	    ;;
+	"t")
+	    echo "join=tsmuxer" > h264
+	    ;;
+	"a1")
+	    echo "aac_br_select=1" >> h264
+	    ;;
+	"a2")
+	    echo "aac_br_select=2" >> h264
+	    ;;
+	"m")
+	    echo "mkv=yes" >> h264
+	    ;;
+    esac
+fi

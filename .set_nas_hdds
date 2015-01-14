@@ -1,0 +1,72 @@
+#!/bin/bash
+# v1.0 vdrserver
+
+#Adresse des NAS Servers testen
+
+iii=$hddCount
+for i in {1..4}; do
+	#anzahl der lokalen HDDs ermitteln
+        while read TMP; do
+                if [ "$(echo $TMP | grep -v ^\# | awk '{ print $2 }')" == "/vdrvideo0$i" ]; then
+                        iii=$[ iii+1 ]
+                fi
+        done < /etc/fstab
+done
+
+NASDIFF="0"
+for i in {1..4}; do
+	eval NASIP=\$NASIP$(echo $i)
+	eval NASPATH=/\$NASPATH$(echo $i)
+	eval NASNFSTYPE=\$NASNFSTYPE$(echo $i)
+	NASIP=$(echo $NASIP | sed -e 's/ //g')
+	NASPATH=$(echo $NASPATH | sed -e 's/ //g')
+
+	TMP="$(cat /etc/auto.nas | grep /vdrvideo0"$[ i+iii ]" | awk '{ print $3 }' | awk -F ":" '{ print $1 }')"
+	if [[ "X$TMP" == "X" && "X$NASIP" != "X" ]] || [ "X$TMP" != "X$NASIP" ]; then
+		NASDIFF="1"
+	fi
+	TMP="$(cat /etc/auto.nas | grep /vdrvideo0"$[ i+iii ]" | awk '{ print $3 }' | awk -F ":" '{ print $2 }')"
+	if [[ "X$TMP" != "X" && "X$TMP" != "X$NASPATH" ]]; then
+	        NASDIFF=$[ NASDIFF + 2 ]
+	fi
+	TMP="$(cat /etc/auto.nas | grep /vdrvideo0"$[ i+iii ]" | awk '{ print $2 }' | awk -F "," '{ print $5 }')"
+	if [ "X$TMP" != "X" ]; then 
+		if [ "$TMP" == "nfsvers=3" ]; then
+			TMP="3"
+		else
+			TMP="4"
+		fi
+		if [ "$TMP" != "$NASNFSTYPE" ]; then
+		        NASDIFF=$[ NASDIFF + 4 ]
+		fi
+	fi
+done
+	echo -n "" > /etc/auto.nas
+	if ! [[ "$NASIP1" == "" || "$NASIP1" == " " ]]; then
+		echo -e "/vdrvideo0$[ iii+1 ]\t-fstype=nfs,rw,nolock,retry=0,nfsvers=$NASNFSTYPE1\t\t$(echo $NASIP1 | sed -e 's/ //g'):/$(echo $NASPATH1 | sed -e 's/ //g')" >> /etc/auto.nas
+                MOUNT+="\t<txt-record>/vdrvideo0$[ iii + 1 ]|$NASIP1|$NASNFSTYPE1|/$NASPATH1</txt-record>\n"
+#		set_avahi $[ iii+1 ] "$NASIP1" "$NASNFSTYPE1" "$NASPATH1"
+		iii=$[ iii + 1]
+	fi
+	if ! [[ "$NASIP2" == "" || "$NASIP2" == " " ]]; then
+		echo -e "/vdrvideo0$[ iii+1 ]\t-fstype=nfs,rw,nolock,retry=0,nfsvers=$NASNFSTYPE2\t\t$(echo $NASIP2 | sed -e 's/ //g'):/$(echo $NASPATH2 | sed -e 's/ //g')" >> /etc/auto.nas
+                MOUNT+="\t<txt-record>/vdrvideo0$[ iii + 1 ]|$NASIP2|$NASNFSTYPE2|/$NASPATH2</txt-record>\n"
+#               set_avahi $[ iii+1 ] "$NASIP2" "$NASNFSTYPE2" "$NASPATH2"
+ 		iii=$[ iii + 1]
+	fi
+	if ! [[ "$NASIP3" == "" || "$NASIP3" == " " ]]; then
+		echo -e "/vdrvideo0$[ iii+1 ]\t-fstype=nfs,rw,nolock,retry=0,nfsvers=$NASNFSTYPE3\t\t$(echo $NASIP3 | sed -e 's/ //g'):/$(echo $NASPATH3 | sed -e 's/ //g')" >> /etc/auto.nas
+                MOUNT+="\t<txt-record>/vdrvideo0$[ iii + 1 ]|$NASIP3|$NASNFSTYPE3|/$NASPATH3</txt-record>\n"
+#               set_avahi $[ iii+1 ] "$NASIP3" "$NASNFSTYPE3" "$NASPATH3"
+		iii=$[ iii + 1]
+	fi
+	if ! [[ "$NASIP4" == "" || "$NASIP4" == " " ]]; then
+		echo -e "/vdrvideo0$[ iii+1 ]\t-fstype=nfs,rw,nolock,retry=0,nfsvers=$NASNFSTYPE4\t\t$(echo $NASIP4 | sed -e 's/ //g'):/$(echo $NASPATH4 | sed -e 's/ //g')" >> /etc/auto.nas
+                MOUNT+="\t<txt-record>/vdrvideo0$[ iii + 1 ]|$NASIP4|$NASNFSTYPE4|/$NASPATH4</txt-record>\n"
+#               set_avahi $[ iii+1 ] "$NASIP4" "$NASNFSTYPE4" "$NASPATH4"
+		iii=$[ iii + 1]
+	fi
+if [ "$NASDIFF" != "0" ]; then
+	REBOOT=3
+fi
+hddCount=$iii

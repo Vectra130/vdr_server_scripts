@@ -1,0 +1,30 @@
+# v1.1 vdrserver
+
+	. /etc/vectra130/configs/sysconfig/.sysconfig
+	vdrDbus=$($SCRIPTDIR/vdr-dbus-send.sh /Timers timer.Next)
+
+	if [ $(echo "$vdrDbus" | grep 'int32 250' | wc -l) == "1" ]; then
+                #ACPI Aufweckzeit wird konfiguriert
+		nexttimerrel=$(echo "$vdrDbus" | grep int32 | tail -1 | awk '{ print $2 }')
+		nexttimerabs=$(echo "$vdrDbus" | grep uint64 | head -1 | awk '{ print $2 }')
+                offset=$(( ${nexttimerrel} - 600 ))
+                if [[ "$offset" -lt "60" ]] ; then
+                        logger -t CHECKTIMER "Aktiver Timer innerhalb der naechsten 10min gefunden."
+                        return 2
+                else
+                        # sync system clock to RTC
+                        hwclock --systohc --utc > /dev/null
+                        NextTimer=$(( ${nexttimerabs} - 600 ))  # Start 10 minutes earlier
+                        #ACPI Device
+                        DEV=/sys/class/rtc/rtc0/wakealarm
+
+                        echo "0" > $DEV
+                        echo $NextTimer > $DEV
+
+			STARTTIME=$(cat /proc/driver/rtc | grep alrm_time | awk -F':' '{ print $2":"$3":"$4 }')
+			STARTDATE=$(cat /proc/driver/rtc | grep alrm_date | awk -F':' '{ print $2 }' | awk -F'-' '{ print $3"."$2"." }')
+                        logger -t CHECKTIMER "ACPI wurde konfiguriert. VDR startet wieder: ${STARTDATE}${STARTTIME} UTC"
+			return 0
+                fi
+        fi
+return 0

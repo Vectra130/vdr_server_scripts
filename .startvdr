@@ -1,0 +1,174 @@
+# v1.2 vdrserver
+
+. /etc/vectra130/configs/sysconfig/.sysconfig
+
+
+#test timer sichern
+$SCRIPTDIR/check_timers.sh
+
+#Ueberreste beseitigen
+[ -e $DATADIR/.vdr_restart ] && rm $DATADIR/.vdr_restart
+[ -e $DATADIR/.vdr_restart_soft ] && rm $DATADIR/.vdr_restart_soft
+
+#nur einmal ausfuehren!
+[ $(pidof -x $(basename $0) | wc -w) -gt 2 ] && exit 0 
+
+LOG=3
+WATCHDOG=0
+KEYB="UTF-8"
+
+logger -t VDR "DVB Tuner pruefen"
+
+##DVB Tuner pruefen
+#DD Cine S2
+[ "$(lspci | grep 'Multimedia controller.*Digital Devices' | wc -l)" != 0 ] && DDHD=1 && logger -t VDR "$(lspci | grep 'Multimedia controller.*Digital Devices' | wc -l)x DD Cine S2 Devices gefunden"
+#Hauppauge SD-FF
+[ "$(lspci | grep 'Multimedia controller.*SAA7146' | wc -l)" != 0 ] && SDFF=1 && logger -t VDR "$(lspci | grep 'Multimedia controller.*SAA7146' | wc -l)x Hauppauge SD-FF Devices gefunden"
+#Sundtek USB
+[ "$(lsusb | grep Sundtek | wc -l)" != 0 ] && STHD=1 && logger -t VDR "$(lsusb | grep Sundtek | wc -l)x Sundtek USB Devices gefunden"
+
+logger -t VDR "DVB Treiber laden"
+
+#DVB Treiber laden
+logger -t INFO "Lade DVB Treiber"
+[ "$DDHD" == 1 ] && modprobe ddbridge msi=0
+[ "$SDFF" == 1 ] && modprobe dvb-ttpci budgetpatch=2 vidmode=0
+[[ "$STHD" == 1 && -e /opt/bin/mediaclient ]] && /opt/bin/mediaclient --start && while [ -z $(/opt/bin/mediaclient --lc | grep frontend) ]; do sleep 0.5; done
+[[ "$STHD" != 1 && -e /opt/bin/mediaclient ]] && /opt/bin/mediaclient --shutdown
+
+#epgd starten
+logger -t VDR "epgd startet"
+if [[ "$USEEPGD" == "1" && "$USEMYSQL" == "1" ]]; then
+	[ "$(pidof -x -s epgd)" == "" ] && LANG="de_DE.UTF-8" /usr/local/bin/epgd -n -l 0 -p /usr/local/lib/epgd/plugins &
+	$SCRIPTDIR/.change_avahi_info.sh epgd 1
+fi
+
+#Oscam starten
+logger -t VDR "Oscam starten"
+if [ "${USEOSCAM}" == "1" ]; then
+	/usr/bin/oscam -b
+	$SCRIPTDIR/.change_avahi_info.sh oscam 1
+fi
+
+#to_264 konvertierung starten
+if [ "${USEH264}" == "1" ]; then
+	/usr/local/bin/to_h264_server $
+	$SCRIPTDIR/.change_avahi_info.sh to_h264_server 1
+fi
+
+#Zur Sicherheit nochmal die Verzeichnisse mounten
+[ $(pidof -xs automount | wc -w) == 0 ] && start autofs
+
+#VDR starten
+
+#Client info
+CLIENTINFO=startet
+. $SCRIPTDIR/.vdr_clientinfo
+
+#Plugins auswaehlen
+logger -t VDR "Plugins waehlen"
+EPGIMAGEDIR=$DATADIR/vdr/epgimages
+CHANNLOGODIR=$DATADIR/vdr/channellogos
+PLUGINS=""
+if [ "$USEOSCAM" == "1" ]; then
+	BUDGET=""
+# geht nicht #	[ $(ls /dev/dvb/adapter*/ | grep ca0 | wc -l) != 0 ] && BUDGET=$(ls /dev/dvb/adapter*/ca* | awk -F"/" '{ print $4 }' | sed -e 's/adapter/-B/' | tr "\n" " ")
+	PLUGINS+="-P 'dvbapi $BUDGET' "
+	[ -e /usr/lib/vdr/plugins-$VDRVERS/libdvbapi-dvbsddevice.so.$VDRVERS ] && rm /usr/lib/vdr/plugins-$VDRVERS/libdvbapi-*
+fi
+[[ "$VDRPLUGINdbus2vdr" == "1" && -e /usr/lib/vdr/plugins-$VDRVERS/libvdr-dbus2vdr.so.$VDRVERS ]]		&& PLUGINS+="-P 'dbus2vdr' "
+[[ "$VDRPLUGINdvbsddevice" == "1" && -e /usr/lib/vdr/plugins-$VDRVERS/libvdr-dvbsddevice.so.$VDRVERS ]]		&& PLUGINS+="-P 'dvbsddevice' "
+[[ "$VDRPLUGINdummydevice" == "1" && -e /usr/lib/vdr/plugins-$VDRVERS/libvdr-dummydevice.so.$VDRVERS ]]		&& PLUGINS+="-P 'dummydevice' "
+[[ "$VDRPLUGINsundtek" == "1" && "$STHD" == 1 && -e /usr/lib/vdr/plugins-$VDRVERS/libvdr-sundtek.so.$VDRVERS ]]		&& PLUGINS+="-P 'sundtek' "
+[[ "$VDRPLUGINstreamdevserver" == "1" && -e /usr/lib/vdr/plugins-$VDRVERS/libvdr-streamdev-server.so.$VDRVERS ]]	&& PLUGINS+="-P 'streamdev-server --remux=/etc/vectra130/scripts/externremux.sh' "
+[[ "$VDRPLUGINlive" == "1" && -e /usr/lib/vdr/plugins-$VDRVERS/libvdr-live.so.$VDRVERS ]]			&& PLUGINS+="-P 'live --port=8008 --ip=0.0.0.0' "
+[[ "$VDRPLUGINsvdrposd" == "1" && -e /usr/lib/vdr/plugins-$VDRVERS/libvdr-svdrposd.so.$VDRVERS ]]		&& PLUGINS+="-P 'svdrposd' "
+[[ "$VDRPLUGINrestfulapi" == "1" && -e /usr/lib/vdr/plugins-$VDRVERS/libvdr-restfulapi.so.$VDRVERS ]]		&& PLUGINS+="-P 'restfulapi --epgimages=$EPGIMAGEDIR --channellogos=$CHANNELLOGODIR --port=8002 --ip=0.0.0.0' "
+[[ "$VDRPLUGINwirbelscan" == "1" && -e /usr/lib/vdr/plugins-$VDRVERS/libvdr-wirbelscan.so.$VDRVERS ]]		&& PLUGINS+="-P 'wirbelscan' "
+[[ "$VDRPLUGINchanorg" == "1" && -e /usr/lib/vdr/plugins-$VDRVERS/libvdr-chanorg.so.$VDRVERS ]]		&& PLUGINS+="-P 'chanorg' "
+if [ "$USEEPGD" == "1" ]; then
+	[[ "$VDRPLUGINscraper2vdr" == "1" && -e /usr/lib/vdr/plugins-$VDRVERS/libvdr-scraper2vdr.so.$VDRVERS ]]		&& PLUGINS+="-P 'scraper2vdr -i $EPGIMAGEDIR -m headless' "
+	[[ "$VDRPLUGINepg2vdr" == "1" && -e /usr/lib/vdr/plugins-$VDRVERS/libvdr-epg2vdr.so.$VDRVERS ]]		&& PLUGINS+="-P 'epg2vdr' "
+fi
+[[ "$VDRPLUGINepgsearch" == "1" && -e /usr/lib/vdr/plugins-$VDRVERS/libvdr-epgsearch.so.$VDRVERS ]]                     && PLUGINS+="-P 'epgsearch' "
+[[ "$VDRPLUGINrecsearch" == "1" && -e /usr/lib/vdr/plugins-$VDRVERS/libvdr-recsearch.so.$VDRVERS ]]		&& PLUGINS+="-P 'recsearch' "
+[[ "$VDRPLUGINskinflat" == "1" && -e /usr/lib/vdr/plugins-$VDRVERS/libvdr-skinflat.so.$VDRVERS ]]		&& PLUGINS+="-P 'skinflat --logopath=$CHANNELLOGODIR' "
+[[ "$VDRPLUGINskincurses" == "1" && -e /usr/lib/vdr/plugins-$VDRVERS/libvdr-skincurses.so.$VDRVERS ]]		&& PLUGINS+="-P 'skincurses' "
+[[ "$VDRPLUGINmarkad" == "1" && -e /usr/lib/vdr/plugins-$VDRVERS/libvdr-markad.so.$VDRVERS ]]		&& PLUGINS+="-P 'markad' "
+[[ "$VDRPLUGINxineliboutput" == "1" && -e /usr/lib/vdr/plugins-$VDRVERS/libvdr-xineliboutput.so.$VDRVERS ]]		&& PLUGINS+="-P 'xineliboutput --local=none --remote=0.0.0.0:37890' "
+[[ "$VDRPLUGINvnsiserver" == "1" && -e /usr/lib/vdr/plugins-$VDRVERS/libvdr-vnsiserver.so.$VDRVERS ]]		&& PLUGINS+="-P 'vnsiserver' "
+[[ "$VDRPLUGINiptv" == "1" && -e /usr/lib/vdr/plugins-$VDRVERS/libvdr-iptv.so.$VDRVERS ]]            && PLUGINS+="-P 'iptv' "
+[[ "$VDRPLUGINdevstatus" == "1" && -e /usr/lib/vdr/plugins-$VDRVERS/libvdr-devstatus.so.$VDRVERS ]]            && PLUGINS+="-P 'devstatus' "
+if [[ "$VDRPLUGINavahi4vdr" == "1" && -e /usr/lib/vdr/plugins-$VDRVERS/libvdr-avahi4vdr.so.$VDRVERS ]]; then
+	echo "name=|VDR-Backend|%h|${MACADRESS}|${IP}|,type=_VDR-Streaming-Server._tcp,port=6419" > /root/.vdr/plugins/avahi4vdr/services.conf
+	PLUGINS+="-P 'avahi4vdr' "
+fi
+if [[ "$VDRPLUGINdynamite" == "1" && -e /usr/lib/vdr/plugins-$VDRVERS/libvdr-dynamite.so.$VDRVERS ]]; then
+	dvbIdleDevice=""
+#	for dvbIdle in $(ls /dev/dvb/*/frontend0 | tr "\n" " "); do dvbIdleDevice+="--EnableAutoIdle $dvbIdle "; done
+	PLUGINS+="-P 'dynamite --GetTSTimeout=10 --GetTSTimeoutHandler=/etc/vectra130/scripts/.reanimate_dvb_device.sh --idle-timeout=1 --idle-wakeup=12 $dvbIdleDevice' "
+fi
+
+#VDR-Backend starten
+logger -t VDR "Backend starten"
+$SCRIPTDIR/.change_avahi_info.sh vdr 1
+VDR_CMD="VDR_CHARSET_OVERRIDE=de_DE.$KEYB LANG=de_DE.$KEYB LC_ALL=de_DE.$KEYB /usr/bin/vdr -v /vdrvideo00 -c /root/.vdr -L /usr/lib/vdr/plugins-$VDRVERS -s $SCRIPTDIR/.suspend.sh -r $SCRIPTDIR/.vdr-recordingaction.sh -E /etc/vectra130/data/vdr/epg.data -u root -g /tmp --port 6419 --no-kbd --vfat -w $WATCHDOG -l $LOG $PLUGINS"
+eval $VDR_CMD
+
+
+###VDR-Abbruch###
+logger -t VDR "ABBRUCH!!!"
+$SCRIPTDIR/.change_avahi_info.sh vdr 0
+
+
+#DVB Treiber entladen
+logger -t INFO "Entlade DVB Treiber"
+[ "$DDHD" == 1 ] && rmmod ddbridge
+[ "$SDFF" == 1 ] && rmmod dvb-ttpci
+[ "$STHD" == 1 ] && /opt/bin/mediaclient --shutdown
+sleep 2
+
+# PCI Ports resetten
+#$SCRIPTDIR/.reset_pci_ports.sh
+
+#Oscam beenden
+if [ "$USEOSCAM" == 1 ]; then
+	killall -q oscam || killall -9 -q oscam
+fi
+
+#Avahi Infos
+$SCRIPTDIR/.change_avahi_info.sh epgd 0
+$SCRIPTDIR/.change_avahi_info.sh oscam 0
+
+#Pruefen ob VDR schlafen soll
+if [ -e /tmp/.startsuspend ]; then
+	$SCRIPTDIR/.change_avahi_info.sh online 0
+	stop avahi-daemon
+	rm /tmp/.startsuspend
+
+	logger -t SUSPEND "VDR geht in Suspend"
+	cat /var/log/syslog | grep -i suspend | tail -20 > /etc/vectra130/data/suspend.log
+
+	# Aufraeumen
+	echo "" > /var/log/debug
+	sync && echo 3 > /proc/sys/vm/drop_caches
+	sleep 2
+
+	#Shutdown Aktionen (nur eine auswaehlen!!!)
+
+	#poweroff
+#	killall -9 -q oscam
+#	killall -9 -q vdr
+#	poweroff
+
+	#Suspend to Swapfile
+#	s2disk
+
+	#Suspend to Ram
+	s2ram
+
+	logger -t SUSPEND "VDR ist wieder aufgewacht"
+	cat /var/log/syslog | grep -i suspend | tail -100 > /etc/vectra130/data/suspend.log
+	$SCRIPTDIR/.change_avahi_info.sh online 1
+	start avahi-daemon
+fi

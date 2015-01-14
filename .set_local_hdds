@@ -1,0 +1,76 @@
+#!/bin/bash
+# v1.1 vdrserver
+
+#angeschlossene Festplatten fuer Videoverzeichnisse erkennen (System Platten ausschliessen)
+
+. /etc/vectra130/configs/sysconfig/.sysconfig
+
+tmpFile=/tmp/.blkid
+configFile=/etc/vectra130/configs/sysconfig/.available_hdds
+CONFIG=/etc/vectra130/configs/sysconfig/.config
+avahiDir=/etc/avahi/services
+
+[ -e $configFile ] && rm $configFile
+touch $configFile
+
+blkid > $tmpFile
+
+#system Platten ausschliessen
+while read check; do
+	sysHdd="$(echo $check | grep ^'UUID=' | grep -v "/vdrvideo" | awk '{ print $1 }' | sed -e 's/UUID=//')"
+	if [ X$sysHdd != X ]; then
+		sed -i -e '/'$sysHdd'/d' $tmpFile
+	fi
+done < /etc/fstab
+
+
+#restliche Festplatten in config file eintragen
+configSelect="deaktiv"
+if [ $(cat $tmpFile | wc -l) != 0 ]; then
+	while read hdd; do
+		tmpDev=$(echo $hdd | awk '{ print $1 }' | sed -e 's!/dev/!!' -e 's/://')
+		tmpLabel=$(echo $hdd | sed -e 's/.*LABEL=\"//' -e 's/\".*//')
+		tmpUuid=$(echo $hdd | sed -e 's/.*UUID=\"//' -e 's/\".*//')
+		tmpType=$(echo $hdd | sed -e 's/.*TYPE=\"//' -e 's/\".*//')
+		echo "$tmpDev|$tmpLabel|$tmpUuid|$tmpType" >> $configFile
+		if [[ "$tmpType" == "ext2" || "$tmpType" == "ext3" || "$tmpType" == "ext4" ]]; then
+			configSelect+=","$tmpDev"("$tmpLabel")"
+		fi
+	done < /tmp/.blkid
+fi
+
+#hdds in .config eintragen
+sed -i -e 's!\(/null:HDD.*\)deaktiv.*\(:Video HDD.*\)!\1'$configSelect'\2!' $CONFIG
+for i in 1 2 3 4; do
+	if [ $(echo $configSelect | grep $(cat $CONFIG | grep /null:HDD$i | awk -F':' '{ print $3 }') | wc -l) == 0 ]; then
+		sed -i -e 's!\(/null:HDD'$i':\).*\(:L:0.*:Video HDD.*\)!\1deaktiv\2!' $CONFIG
+	fi
+done
+
+#alte hdds aus /etc/fstab entfernen
+sed -i -e '/^UUID.*\/vdrvideo/d' -e '/Video HDDs/d' /etc/fstab
+#alte hdds aus /etc/auto.video entfernen
+[ -e /etc/auto.video ] && rm /etc/auto.video
+touch /etc/auto.video
+#alte hdds aus /etc/exports entfernen
+sed -i -e '/^\/vdrvideo0[1-9]/d' /etc/exports
+
+#hdds in auto.video und exports eintragen und mounten
+mount=1
+for i in 1 2 3 4; do
+	tmp=$(cat $CONFIG | grep HDD$i | awk -F':' '{ print $3 }' | awk -F'(' '{ print $1 }')
+	tmp2=$(cat $configFile | grep "$tmp|")
+	if [ "x$tmp2" != "x" ]; then
+		#auto.video
+		echo -e "/vdrvideo0$mount\t-fstype="$(echo $tmp2 | awk -F '|' '{ print $4 }')",rw,noatime\t\tUUID="$(echo $tmp2 | awk -F'|' '{ print $3 }') >> /etc/auto.video
+		#exports
+		echo -e "/vdrvideo0$mount\t\t"$SUBNET"(insecure,insecure_locks,rw,async,no_subtree_check)" >> /etc/exports
+		#avahi service eintrag
+    		MOUNT+="\t<txt-record>/vdrvideo0$mount|$IP|nfstype=4|/vdrvideo0$mount</txt-record>\n"
+# 		set_avahi $mount $IP 4 vdrvideo0$mount
+
+		mount=$[ mount + 1 ]
+		REBOOT=1
+	fi
+done
+hddCount=$[ mount-1 ]

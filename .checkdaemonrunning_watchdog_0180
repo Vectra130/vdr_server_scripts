@@ -1,0 +1,24 @@
+#Watchdog prueft ob daemons laufen
+# v1.1 vdrserver
+
+ENDTIME=14400
+#for DAEMON in ffmpeg
+DAEMON=segmenter
+		if [ ! -z $(pidof -xs "$DAEMON") ]; then
+	 		[ -e /tmp/."$DAEMON"_running ] || echo $(date +%s) > /tmp/."$DAEMON"_running
+			STARTTIME=$(cat /tmp/."$DAEMON"_running)
+			TIME=$(date +%s)
+			DIFF=$[ TIME-STARTTIME ]
+			if [ $DIFF -ge $ENDTIME ]; then
+				killall -9 -q "$DAEMON"
+				[ -e /tmp/."$DAEMON"_running ] && rm -r /tmp/."$DAEMON"_running
+				DIFF=0
+				logger -t WATCHDOG "Daemon '$DAEMON' wurde nach $[ ENDTIME / 60 ] Minuten beendet"
+			else
+				logger -t WATCHDOG "Daemon '$DAEMON' laeuft bereits $[ DIFF / 60 ] Minuten"
+			fi
+		else
+			[ -e /tmp/."$DAEMON"_running ] && rm -r /tmp/."$DAEMON"_running
+			DIFF=0
+		fi
+#done

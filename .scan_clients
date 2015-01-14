@@ -1,0 +1,14 @@
+#!/bin/bash
+# v1.1 vdrserver
+. /etc/vectra130/configs/sysconfig/.sysconfig
+
+
+#Sucht nach VDR und XBMC Clients im lokalen Subnetz
+
+SUBIP=$(echo $IP | awk -v FS="." '{ print $1 "." $2 "." $3 }')
+SUBIP2=$(echo $IP | awk -v FS="." '{ print $4 }')
+
+nmap -T 5 -p T:6419 --open $SUBIP.1-255 --exclude $IP,$GATEWAY,$NAMESERVER,$(echo $NASIP1,$NASIP2,$NASIP3,$NASIP4 | sed -e 's/, //g' -e 's/,*.$//') | grep -v "$IP" | grep -v "$HOSTNAME" | grep "Nmap scan report" | awk {' print $5 '} >> $SYSCONFDIR/.clients_online
+
+cat $SYSCONFDIR/.clients_online | sort | uniq | sed '/^ *$/d' > /tmp/.clients_online
+mv /tmp/.clients_online $SYSCONFDIR/.clients_online

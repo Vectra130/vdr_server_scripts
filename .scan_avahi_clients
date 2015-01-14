@@ -1,0 +1,17 @@
+#!/bin/bash
+# v1.0 vdrserver
+
+. /etc/vectra130/configs/sysconfig/.sysconfig
+
+#Sucht nach Streaming_Clients die sich per Avahi melden
+
+#erst mal den avahi dienst resetten um "geister" auszuschließen
+restart avahi-daemon
+
+[ "$1" == "" ] 	&& frontEnd="\-" \
+		|| frontEnd="$1-"
+
+avahi-browse -ltk --resolve --parsable _VDR-Streaming-Client._tcp | grep ^"=" | grep -E '(vdr=1|xbmc=1)' | awk -F";" '{ print $8 }' >> $SYSCONFDIR/.clients_online
+cat $SYSCONFDIR/.clients_online | sort | uniq | sed '/^ .$/d' > /tmp/.clients_online
+mv /tmp/.clients_online $SYSCONFDIR/.clients_online
+

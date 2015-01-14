@@ -1,0 +1,14 @@
+#!/bin/bash
+
+# Vormerkung für to_h264
+#
+# mark for to:h264
+
+h264=h264
+
+if [ "$1" != "" ]
+then
+    echo $1 > $h264
+else
+    touch $h264
+fi

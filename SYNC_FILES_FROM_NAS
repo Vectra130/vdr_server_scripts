@@ -1,0 +1,6 @@
+#!/bin/bash
+
+start autofs
+
+cd /nfs/vdr_files/RPi/raspbian_rpihd_xbmc/vectra130/
+cp -apurv $(ls -a /nfs/vdr_files/RPi/raspbian_rpihd_xbmc/vectra130/ | grep -vxE "(\.|\.\.|config|test)") /etc/vectra130/

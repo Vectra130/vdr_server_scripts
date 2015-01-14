@@ -1,0 +1,1 @@
+../.reset_pci_ports.sh

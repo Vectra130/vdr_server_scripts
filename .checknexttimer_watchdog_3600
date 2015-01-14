@@ -1,0 +1,4 @@
+#Watchdog fuer check_next_timer
+# v1.2 vdrserver
+
+	. $SCRIPTDIR/.check_next_timer

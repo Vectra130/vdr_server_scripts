@@ -1,0 +1,20 @@
+# v1.1 vdrserver
+
+vdrStatus=$($SCRIPTDIR/vdr-dbus-send.sh /vdr vdr.Status | grep Ready | wc -l)
+#logger -t TEST "vdr: $vdrStatus"
+if [[ ! -e /etc/avahi/services/vdrstatus.service && "$vdrStatus" == "1" ]]; then
+	cat > /etc/avahi/services/vdrstatus.service <<EOF
+
+<?xml version="1.0" standalone='no'?>
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+<service-group>
+<name replace-wildcards="yes">${HOSTNAME}:${IP} Backend</name>
+<service>
+       <type>_backend-running._tcp</type>
+       <txt-record>Backend gestartet</txt-record>
+</service>
+</service-group>
+EOF
+else
+	[[ -e /etc/avahi/services/vdrstatus.service && "$vdrStatus" == "0" ]] && rm /etc/avahi/services/vdrstatus.service
+fi

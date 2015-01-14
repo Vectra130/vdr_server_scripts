@@ -1,0 +1,1 @@
+../.set_videodir_hdds.sh

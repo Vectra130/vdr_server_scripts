@@ -1,0 +1,215 @@
+#!/bin/bash
+### BEGIN INIT INFO
+# Provides:          vectra130.server
+# Required-Start:    $all
+# Required-Stop:
+# Default-Start:     2
+# Default-Stop:
+# Short-Description: Vectra130 Server Init and Shutdown Script
+# Description:
+### END INIT INFO
+
+# v1.3 vdrserver
+
+# PATH should only include /usr/* if it runs after the mountnfs.sh script
+PATH=/sbin:/usr/sbin:/bin:/usr/bin
+DESC="Vectra130 Server Init and Shutdown Script"
+NAME=vectra130.server
+PIDFILE=/var/run/$NAME.pid
+SCRIPTNAME=/etc/init.d/aa-$NAME
+VERBOSE="yes"
+
+# Define LSB log_* functions.
+# Depend on lsb-base (>= 3.2-14) to ensure that this file is present
+# and status_of_proc is working.
+. /lib/lsb/init-functions
+
+#
+# Function that starts the daemon/service
+#
+do_start()
+{
+
+logger -t INFO "Bereite Media Start vor"
+
+#pathvars setzen
+. /etc/vectra130/configs/sysconfig/.pathvars
+
+#swap einrichten
+[ -e $DATADIR/swapfile ] && swapon $DATADIR/swapfile
+
+#log Verzeichnisse anlegen
+[ -e /var/log/postgresql ] || mkdir /var/log/postgresql
+[ -e /var/log/exim4 ] || mkdir /var/log/exim4
+touch /var/log/exim4/mainlog
+chmod 777 -R /var/log/exim4
+
+#FirstBoot Check
+. $SYSCONFDIR/.sysconfig
+if [ "$FIRSTSTART" == "1" ]; then
+	logger -t INFO "Firststart-Sequenz wird eingeleitet"
+        #werte auf 1 setzen
+#        for config in USEDHCP SPLASHNR USEXBMC; do
+#                sed -i -e 's/:\('$config'\):.*:\([A,B,L]\):/:\1:1:\2:/' $SYSCONFDIR/.config
+#        done
+        #werte auf 0 setzen
+#        for config in USECAMD3; do
+#                sed -i -e 's/:\('$config'\):.*:\([A,B,L]\):/:\1:0:\2:/' $SYSCONFDIR/.config
+#        done
+        #werte loeschen
+        for config in SERVERMAC NASIP1 NASIP2 NASPATH2 NASIP3 NASPATH3 NASIP4 NASPATH4 NAMESERVER; do
+                sed -i -e 's/:\('$config'\):.*:\([A,B,L]\):/:\1::\2:/' $SYSCONFDIR/.config
+        done
+        #spezielle werte setzen
+        sed -i  -e 's/\(HOSTNAME\):.*:A:/\1:vdrserver:A:/' \
+                -e 's/\(WORKGROUP\):.*:A:/\1:WORKGROUP:A:/' \
+                -e 's/\(NASPATH1\):.*:A:/\1:vdrvideo00:A:/' \
+                $SYSCONFDIR/.config
+fi
+
+#MAC Adresse ermitteln
+. /etc/vectra130/scripts/.get_mac_ip
+sed -i -e 's/\(-MAC-Adresse:\).*/\1 '$MACADRESS'/' /etc/vectra130/configs/sysconfig/.config
+
+#System-Version ermitteln
+VERSION=$(cat /etc/vectra130/VERSION)
+sed -i -e 's/\(-Aktuelle Version:\).*/\1 '"$VERSION"'/' $SYSCONFDIR/.config
+
+#Relevante HDDs fuer Video Verzeichnisse aufnehmen
+$SCRIPTDIR/.set_videodir_hdds.sh
+
+#Sysconfig erstellen
+#####
+cat > $SYSCONFDIR/.sysconfig << EOF
+# Konfigurationsdatei fur automatisch generierte Variablen
+# !!!!!!!!!! NICHT BEARBEITEN !!!!!!!!!!
+
+
+#andere configs mit integrieren
+. $SYSCONFDIR/.pathvars
+. $VDRCONFDIR/.plugin_start.config
+
+        SYSTEMTYP="SERVER"
+        SVDRP_PORT=6419
+        MACADRESS="$MACADRESS"
+        FIRSTSTART="0"
+	USEDHCP="0"
+        VERSION="$VERSION"
+        VDRVERS="2.0.6"
+	SUBNET="192.168.1.0/24"
+	HOSTNAME="vdrserver"
+
+. $SYSCONFDIR/.nice.config
+
+#Aus config uebernommene Variablen
+EOF
+#####
+
+#Configvars setzen
+$SCRIPTDIR/.create_sysconfig.sh
+. $SYSCONFDIR/.sysconfig
+logger -t INFO "ConfigVars gesetzt"
+
+#watchdogs starten
+nice -$_watchdog_sh_nice $SCRIPTDIR/.watchdog.sh &
+
+#MySql Datenbankserver starten
+if [ "$USEMYSQL" == "1" ]; then
+	start mysql
+fi
+
+#EPG2MySql Dienst starten
+if [[ "$USEEPGD" == "1" && "$USEMYSQL" == "1" ]]; then
+	chown -R mysql:mysql /etc/vectra130/data/mysql
+	LANG="de_DE.UTF-8" nice -$epgd_nice /usr/local/bin/epgd -n -p /usr/local/lib/epgd/plugins &
+fi
+
+#Samba Dienst starten
+if [ "${USESAMBA}" == "1" ]; then
+	/etc/init.d/samba start
+fi
+
+#VDR-Backend starten
+nice -$_watchdog_sh_nice $SCRIPTDIR/.backend.sh &
+
+#VDRadmin starten
+[ ! -e /var/log/vdradmin ] && mkdir /var/log/vdradmin
+[ ! -e /var/run/vdradmin ] && mkdir /var/rub/vdradmin
+#vdradmin
+
+#DEBUG Modus
+#if [ "$DEBUG" == "0" ]; then
+#	/etc/init.d/syslog-ng stop
+#fi
+
+}
+
+#
+# Function that stops the daemon/service
+#
+do_stop()
+{
+
+. /etc/vectra130/configs/sysconfig/.sysconfig
+
+killall .backend.sh
+killall vdr
+rm /etc/avahi/services/*_running.service
+rm /etc/avahi/services/VDR-Streaming-Server.service
+#	 if svdrpsend next | grep "250 " > /dev/null ; then
+                #ACPI Aufweckzeit wird konfiguriert
+#		nexttimerrel=$(svdrpsend next rel | grep "250 " | awk '{ print $3 }')
+#                nexttimerabs=$(svdrpsend next abs | grep "250 " | awk '{ print $3 }')
+#                offset=$(( ${nexttimerrel:0:-1} - 300 ))
+
+#		. $SCRIPTDIR/.check_next_timer
+#		if [ "X$?" != X2 ]; then
+#                if [[ "$offset" -lt "60" ]] ; then
+#                        logger -t SUSPEND "Aktiver Timer innerhalb der naechsten 5min gefunden. Shutdown abgebrochen"
+#                        return 2
+#                else
+#                        logger -t SUSPEND "ACPI wird konfiguriert"
+#                        # sync system clock to RTC
+#                        hwclock --systohc --utc > /dev/null
+#                        NextTimer=$(( ${nexttimerabs:0:-1} - 300 ))  # Start 5 minutes earlier
+#                        #ACPI Device
+#                        DEV=/sys/class/rtc/rtc0/wakealarm
+#
+#                        echo "0" > $DEV
+#                        echo $NextTimer > $DEV
+#
+#                        STARTTIME=$(date --date='@'$NextTimer)
+#                        logger -t SUSPEND "VDR startet wieder: $STARTTIME"
+#
+#                fi
+#        fi
+
+return 0
+
+}
+
+case "$1" in
+  start)
+	[ "$VERBOSE" != no ] && log_daemon_msg "Starting $DESC" "$NAME"
+	do_start
+	case "$?" in
+		0|1) [ "$VERBOSE" != no ] && log_end_msg 0 ;;
+		2)   [ "$VERBOSE" != no ] && log_end_msg 1 ;;
+	esac
+	;;
+  stop)
+	[ "$VERBOSE" != no ] && log_daemon_msg "Stopping $DESC" "$NAME"
+	do_stop
+	case "$?" in
+		0|1) [ "$VERBOSE" != no ] && log_end_msg 0 ;;
+		2)   [ "$VERBOSE" != no ] && log_end_msg 1
+	esac
+	;;
+  *)
+	echo "Usage: $SCRIPTNAME {start|stop}" >&2
+	exit 3
+	;;
+esac
+
+:
+

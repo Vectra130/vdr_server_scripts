@@ -1,0 +1,18 @@
+VDR Streaming Server
+
+1.0.0:
+- initial release
+
+1.0.1:
+- minor bugfixes
+
+1.0.2:
+- minor bugfixes
+- new watchdog scripts and logic
+- webmin Webinterface
+- WebIf: new function "channel editor"
+- WebIf: wlan password now hidden
+- multiple videodirs now using mhddfs
+- WebIf: now its possible to configure video hdds
+- WebIf: menu cleanup (minimal user configuration)
+- videomounts now shared via avahi
